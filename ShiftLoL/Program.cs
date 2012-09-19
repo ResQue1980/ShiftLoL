@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
-using System.Linq;
 using System.Media;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -12,22 +11,12 @@ namespace ShiftLoL
 {
     static class Program
     {
-        /// <summary>
-        /// The main entry point for the application.
-        /// </summary>
         [STAThread]
         static void Main()
         {
-            //Application.ApplicationExit += new EventHandler(ApplicationExit);
             new MainClass();
             Application.Run();
         }
-
-        /* static void ApplicationExit(object sender, EventArgs e)
-        {
-            mc.Dispose();
-        } */
-
     }
 
     public class MainClass
@@ -57,8 +46,14 @@ namespace ShiftLoL
         [DllImport("user32.dll")]
         static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
+        const int GWL_STYLE = -16;
+        const UInt32 WS_BORDER = 0x800000;
         [DllImport("user32.dll")]
         static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+        const int SM_CXSIZEFRAME = 32;
+        [DllImport("user32.dll")]
+        static extern int GetSystemMetrics(UInt32 smIndex);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -133,8 +128,6 @@ namespace ShiftLoL
                 Scan(true);
             else
                 Scan();
-
-            // { MessageBox.Show("1"); } else { MessageBox.Show("2"); }
         }
 
         void Scan(bool manual = false)
@@ -162,18 +155,21 @@ namespace ShiftLoL
             Screen screen = Screen.FromHandle(handle);
             Rectangle rectScreen = screen.Bounds;
 
-            SetWindowPos(handle, IntPtr.Zero, -borderLeft + 3 + screen.Bounds.Left, -borderTop + 3 + screen.Bounds.Top, rectScreen.Width + borderLeft, rectScreen.Height + borderTop, 0);
+            if ((GetWindowLong(handle, GWL_STYLE) & WS_BORDER) != 0)
+            {
+                int borderWidth = GetSystemMetrics(SM_CXSIZEFRAME);
+                SetWindowPos(handle, IntPtr.Zero, -borderLeft + screen.Bounds.Left + borderWidth - 1, -borderTop + screen.Bounds.Top + borderWidth - 1, rectScreen.Width + borderLeft, rectScreen.Height + borderTop, 0);
+            }
+            else
+            {
+                SetWindowPos(handle, IntPtr.Zero, -borderLeft + screen.Bounds.Left, -borderTop + screen.Bounds.Top, rectScreen.Width + borderLeft, rectScreen.Height + borderTop, 0);
+            }
         }
 
         void NotifyDoubleClick(object sender, EventArgs e)
         {
             notify.Dispose();
             Application.Exit();
-        }
-
-        public void Dispose()
-        {
-            notify.Dispose();
         }
     }
 

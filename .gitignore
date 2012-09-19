@@ -1,4 +1,4 @@
-*.ReSharper.user
+*.user
 bin/
 obj/
 Icon/
