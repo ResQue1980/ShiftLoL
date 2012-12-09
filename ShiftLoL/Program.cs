@@ -1,11 +1,14 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
+using System.IO;
 using System.Media;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows.Forms;
+using System.Xml;
+using Timer = System.Windows.Forms.Timer;
 
 namespace ShiftLoL
 {
@@ -15,97 +18,158 @@ namespace ShiftLoL
         static void Main()
         {
             new MainClass();
+            Application.EnableVisualStyles();
             Application.Run();
         }
     }
 
     public class MainClass
     {
-        #region PInvokes
-        [StructLayout(LayoutKind.Sequential)]
-        public struct RECT
-        {
-            public int left;
-            public int top;
-            public int right;
-            public int bottom;
-        }
-
-        [DllImport("user32.dll")]
-        static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
-
-        [DllImport("user32.dll")]
-        static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-
-        [DllImport("user32.dll")]
-        static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, UInt32 uFlags);
-
-        [DllImport("user32.dll")]
-        static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
-
-        [DllImport("user32.dll")]
-        static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
-
-        const int GWL_STYLE = -16;
-        const UInt32 WS_BORDER = 0x800000;
-        [DllImport("user32.dll")]
-        static extern int GetWindowLong(IntPtr hWnd, int nIndex);
-
-        const int SM_CXSIZEFRAME = 32;
-        [DllImport("user32.dll")]
-        static extern int GetSystemMetrics(UInt32 smIndex);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        static extern bool Beep(uint dwFreq, uint dwDuration);
-        #endregion
-
         Container container = new Container();
         private NotifyIcon notify;
         private IntPtr lastWindow = IntPtr.Zero;
         private Timer timer;
-        private SoundPlayer sound = new SoundPlayer("hit.wav");
+        private SoundPlayer sound = new SoundPlayer();
+
+        private SettingsForm settingsForm = new SettingsForm();
+        public SettingsFile settingsFile = new SettingsFile();
+
+        private KeyboardHook globalHotkey;
+
+        readonly AssemblyName assemblyName = Assembly.GetExecutingAssembly().GetName();
+        readonly AssemblyTitleAttribute assemblyTitle = (AssemblyTitleAttribute)Assembly.GetExecutingAssembly().GetCustomAttributes(typeof(AssemblyTitleAttribute), false)[0];
 
         public MainClass()
         {
-            notify = new NotifyIcon(container)
+            ReloadSettings();
+            settingsForm.parent = this;
+        }
+
+        Tuple<Keys, ModifierKeys> ConvertFromString(string keysString)
+        {
+            Keys mainKey = new Keys();
+            ModifierKeys modKeys = new ModifierKeys();
+
+            var keys = keysString.Split('+');
+            foreach (string keyString in keys)
             {
-                Visible = true,
-                Text = "ShiftLoL",
-                Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath)
-            };
+                Keys key = (Keys)(new KeysConverter()).ConvertFromString(keyString);
+                if (key == Keys.Alt || key == Keys.LWin || key == Keys.Shift || key == Keys.Control)
+                {
+                    switch (key)
+                    {
+                        case Keys.Alt: modKeys = modKeys | ModifierKeys.Alt; break;
+                        case Keys.LWin: modKeys = modKeys | ModifierKeys.Win; break;
+                        case Keys.Shift: modKeys = modKeys | ModifierKeys.Shift; break;
+                        case Keys.Control: modKeys = modKeys | ModifierKeys.Control; break;
+                    }      
+                }
+                else
+                {
+                    mainKey = key;
+                }
+            }
+            return new Tuple<Keys, ModifierKeys>(mainKey, (ModifierKeys)modKeys);
+        }
 
+        public void ReloadSettings()
+        {
+            InitXml();
+            InitNotify();
+            InitTimer();
+
+            sound.SoundLocation = settingsFile.Settings.SoundPath;
+
+            try
+            {
+                globalHotkey.Dispose();
+            }
+            catch
+            {
+                //Unregister key
+            }
+            finally
+            {
+                globalHotkey = new KeyboardHook();
+            }
+
+            if (settingsFile.Settings.GlobalHotkey.Length > 0)
+            {
+                try
+                {
+                    Tuple<Keys, ModifierKeys> keysTuple = ConvertFromString(settingsFile.Settings.GlobalHotkey);
+                    globalHotkey.RegisterHotKey(keysTuple.Item2, keysTuple.Item1);
+                }
+                catch (Exception e)
+                {
+                    MessageBox.Show(e.Message, assemblyTitle.Title, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                finally
+                {
+                    globalHotkey.KeyPressed += delegate { notify.ContextMenu.MenuItems[2].PerformClick(); };
+                }
+            }
+        }
+
+        void InitXml()
+        {
+            if (!settingsFile.Exists)
+            {
+                MessageBox.Show(String.Format("'{0}' is missing.\nTool will create a new one.", settingsFile.Path), assemblyTitle.Title);
+                settingsFile.Rewrite();
+            }
+            settingsFile.Read();
+        }
+
+        void InitNotify()
+        {
+            if (notify != null) notify.Dispose();
+            notify = new NotifyIcon(container)
+                         {
+                             Visible = true,
+                             Text = "ShiftLoL",
+                             Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath)
+                         };
             notify.DoubleClick += new EventHandler(NotifyDoubleClick);
-
-            AssemblyName assemblyName = Assembly.GetExecutingAssembly().GetName();
-            AssemblyTitleAttribute assemblyTitle = (AssemblyTitleAttribute)Assembly.GetExecutingAssembly().GetCustomAttributes(typeof(AssemblyTitleAttribute), false)[0];
 
             MenuItem[] menuItems = new MenuItem[]
                                        {
-                                            new MenuItem("Enable Timer", EnableTimer),
-                                            new MenuItem("Disable Timer", DisableTimer),
-                                            new MenuItem("Manual Shift", TimerTick),
-                                            new MenuItem("-"),
-                                            new MenuItem("About", (object o, EventArgs e) =>
-                                                                      {
-                                                                          MessageBox.Show(assemblyTitle.Title + @" version " + assemblyName.Version + "\n\n" + assemblyTitle.Title + " is a tool for shifting League of Legends window.\n\n" + assemblyTitle.Title + " is coded by Doğan Çelik.\nYou can visit my site at http://www.dogancelik.com/",
-                                                                                          @"About "+ assemblyTitle.Title,
-                                                                                          MessageBoxButtons.OK,
-                                                                                          MessageBoxIcon.Information);
-                                                                      }),
-                                            new MenuItem("Exit", NotifyDoubleClick)
+                                           new MenuItem("Enable Timer", EnableTimer),
+                                           new MenuItem("Disable Timer", DisableTimer),
+                                           new MenuItem("Manual Shift", TimerTick),
+                                           new MenuItem("-"),
+                                           new MenuItem("Modify Settings", delegate { settingsForm.Show(); }), 
+                                           new MenuItem("Reload Settings", delegate { ReloadSettings(); }),
+                                           new MenuItem("-"),
+                                           new MenuItem("About", (object o, EventArgs e) =>
+                                                                     {
+                                                                         MessageBox.Show(
+                                                                             assemblyTitle.Title + @" version " +
+                                                                             assemblyName.Version + "\n\n" + assemblyTitle.Title +
+                                                                             " is a tool for shifting League of Legends window.\n\n" +
+                                                                             assemblyTitle.Title +
+                                                                             " is coded by Doğan Çelik.\nYou can visit my site at http://www.dogancelik.com/",
+                                                                             @"About " + assemblyTitle.Title,
+                                                                             MessageBoxButtons.OK,
+                                                                             MessageBoxIcon.Information);
+                                                                     }),
+                                           new MenuItem("Exit", NotifyDoubleClick)
                                        };
-            notify.ContextMenu = new ContextMenu(menuItems);
-            notify.ContextMenu.MenuItems[0].Enabled = false;
 
+            notify.ContextMenu = new ContextMenu(menuItems);
+            notify.ContextMenu.MenuItems[0].Enabled = !settingsFile.Settings.TimerEnabled;
+            notify.ContextMenu.MenuItems[1].Enabled = settingsFile.Settings.TimerEnabled;
+        }
+
+        void InitTimer()
+        {
             timer = new Timer(container)
-                        {
-                            Interval = 5000,
-                            Enabled = true
-                        };
+            {
+                Interval = settingsFile.Settings.TimerInterval,
+                Enabled = settingsFile.Settings.TimerEnabled
+            };
 
             timer.Tick += new EventHandler(TimerTick);
-
         }
 
         void EnableTimer(object o, EventArgs e)
@@ -132,22 +196,29 @@ namespace ShiftLoL
 
         void Scan(bool manual = false)
         {
-            IntPtr handle = FindWindow(null, @"League of Legends (TM) Client");
+            IntPtr handle = WindowsAPI.FindWindow(null, @"League of Legends (TM) Client");
                  
             if ((IntPtr.Zero != handle && lastWindow != handle) || manual)
             {
+                if (settingsFile.Settings.SoundEnabled && File.Exists(settingsFile.Settings.SoundPath) && !manual)
+                {
+                    try { sound.Play(); } catch (Exception) { WindowsAPI.Beep(1000, 250); }
+                }
+                if (settingsFile.Settings.WaitAfterDetect > 0)
+                {
+                    Thread.Sleep(settingsFile.Settings.WaitAfterDetect);
+                }
                 FullScreen(handle);
-                try { sound.Play(); } catch (Exception) { Beep(1000, 250); }
                 lastWindow = handle;
             }
         }
 
         void FullScreen(IntPtr handle)
         {
-            RECT rectClient, rectWindow;
+            WindowsAPI.RECT rectClient, rectWindow;
 
-            GetClientRect(handle, out rectClient);
-            GetWindowRect(handle, out rectWindow);
+            WindowsAPI.GetClientRect(handle, out rectClient);
+            WindowsAPI.GetWindowRect(handle, out rectWindow);
 
             int borderTop = (rectWindow.bottom - rectWindow.top) - rectClient.bottom;
             int borderLeft = (rectWindow.right - rectWindow.left) - rectClient.right;
@@ -155,21 +226,197 @@ namespace ShiftLoL
             Screen screen = Screen.FromHandle(handle);
             Rectangle rectScreen = screen.Bounds;
 
-            if ((GetWindowLong(handle, GWL_STYLE) & WS_BORDER) != 0)
+            int finalLeft = -borderLeft + screen.Bounds.Left + settingsFile.Settings.WindowMarginLeft;
+            int finalTop = -borderTop + screen.Bounds.Top + settingsFile.Settings.WindowMarginTop;
+            int finalWidth = rectScreen.Width + borderLeft;
+            int finalHeight = rectScreen.Height + borderTop;
+
+            if ((WindowsAPI.GetWindowLong(handle, WindowsAPI.GWL_STYLE) & WindowsAPI.WS_BORDER) != 0)
             {
-                int borderWidth = GetSystemMetrics(SM_CXSIZEFRAME);
-                SetWindowPos(handle, IntPtr.Zero, -borderLeft + screen.Bounds.Left + borderWidth - 1, -borderTop + screen.Bounds.Top + borderWidth - 1, rectScreen.Width + borderLeft, rectScreen.Height + borderTop, 0);
+                int borderWidth = WindowsAPI.GetSystemMetrics(WindowsAPI.SM_CXSIZEFRAME);
+                finalLeft += borderWidth - 1;
+                finalTop += borderWidth - 1;
+                WindowsAPI.SetWindowPos(handle, IntPtr.Zero, finalLeft, finalTop, finalWidth, finalHeight, 0);
             }
             else
             {
-                SetWindowPos(handle, IntPtr.Zero, -borderLeft + screen.Bounds.Left, -borderTop + screen.Bounds.Top, rectScreen.Width + borderLeft, rectScreen.Height + borderTop, 0);
+                WindowsAPI.SetWindowPos(handle, IntPtr.Zero, finalLeft, finalTop, finalWidth, finalHeight, 0);
             }
         }
 
         void NotifyDoubleClick(object sender, EventArgs e)
         {
+            globalHotkey.Dispose();
             notify.Dispose();
             Application.Exit();
+        }
+    }
+
+    public class WindowsAPI
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        public struct RECT
+        {
+            public int left;
+            public int top;
+            public int right;
+            public int bottom;
+        }
+
+        [DllImport("user32.dll")]
+        public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+        [DllImport("user32.dll")]
+        public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+        [DllImport("user32.dll")]
+        public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, UInt32 uFlags);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+        public const int GWL_STYLE = -16;
+        public const UInt32 WS_BORDER = 0x800000;
+
+        [DllImport("user32.dll")]
+        public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+        public const int SM_CXSIZEFRAME = 32;
+
+        [DllImport("user32.dll")]
+        public static extern int GetSystemMetrics(UInt32 smIndex);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool Beep(uint dwFreq, uint dwDuration);
+
+        [DllImport("user32.dll")]
+        public static extern short VkKeyScan(char ch);
+    }
+
+    public class XmlHelper
+    {
+        public static void CreateElement(XmlWriter xmlWriter, string name, string value = "")
+        {
+            xmlWriter.WriteStartElement(name);
+            if (!String.IsNullOrEmpty(value))
+            {
+                xmlWriter.WriteString(value);
+            }
+            xmlWriter.WriteEndElement();
+        }
+
+        public static int ParseInt32(string value)
+        {
+            int output = 0;
+            if (Int32.TryParse(value, out output))
+            {
+                return output;
+            }
+            return 0;
+        }
+    }
+
+    public class SettingsFile
+    {
+        public struct SettingsProps
+        {
+            public bool TimerEnabled { get; set; }
+            public int TimerInterval { get; set; }
+            public bool HotkeyEnabled { get; set; }
+            public string GlobalHotkey { get; set; }
+            public bool SoundEnabled { get; set; }
+            public string SoundPath { get; set; }
+            public int WaitAfterDetect { get; set; }
+            public int WindowMarginLeft { get; set; }
+            public int WindowMarginTop { get; set; }
+        }
+
+        private const string FilePath = @"Settings.xml";
+        public string Path { get { return FilePath; } }
+
+        readonly XmlDocument _xmlDocument = new XmlDocument();
+        readonly XmlWriterSettings _writerSettings = new XmlWriterSettings();
+
+        public SettingsProps Settings;
+
+        public SettingsFile()
+        {
+            _writerSettings.Indent = true;
+            _writerSettings.IndentChars = "\t";
+
+            Settings.GlobalHotkey = Settings.SoundPath = String.Empty;
+            Settings.HotkeyEnabled = Settings.SoundEnabled = Settings.TimerEnabled = false;
+            Settings.WaitAfterDetect = Settings.WindowMarginLeft = Settings.WindowMarginTop = 0;
+            Settings.TimerInterval = 5000;
+        }
+
+        public bool Exists
+        {
+            get { return File.Exists(FilePath); }
+        }
+
+        public void Rewrite()
+        {
+            XmlWriter xmlWriter = XmlWriter.Create(FilePath, _writerSettings);
+            xmlWriter.WriteStartDocument();
+            xmlWriter.WriteStartElement("Settings");
+            XmlHelper.CreateElement(xmlWriter, "TimerEnabled", "false");
+            XmlHelper.CreateElement(xmlWriter, "TimerInterval", "5000");
+            XmlHelper.CreateElement(xmlWriter, "HotkeyEnabled", "false");
+            XmlHelper.CreateElement(xmlWriter, "GlobalHotkey", "Ctrl+Shift+Up");
+            XmlHelper.CreateElement(xmlWriter, "SoundEnabled", "false");
+            XmlHelper.CreateElement(xmlWriter, "SoundPath", "hit.wav");
+            XmlHelper.CreateElement(xmlWriter, "WaitAfterDetect", "0");
+            XmlHelper.CreateElement(xmlWriter, "WindowMarginLeft", "0");
+            XmlHelper.CreateElement(xmlWriter, "WindowMarginTop", "0");
+            xmlWriter.WriteEndElement();
+            xmlWriter.Close();
+        }
+
+        public void Read()
+        {
+            _xmlDocument.Load(FilePath);
+            XmlNode xmlSettings = _xmlDocument.GetElementsByTagName("Settings")[0];
+            for (int i = 0; i < xmlSettings.ChildNodes.Count; i++)
+            {
+                switch (xmlSettings.ChildNodes[i].Name)
+                {
+                    case "TimerEnabled": Settings.TimerEnabled = Convert.ToBoolean(xmlSettings.ChildNodes[i].InnerText); break;
+                    case "TimerInterval": Settings.TimerInterval = XmlHelper.ParseInt32(xmlSettings.ChildNodes[i].InnerText); break;
+                    case "HotkeyEnabled": Settings.HotkeyEnabled = Convert.ToBoolean(xmlSettings.ChildNodes[i].InnerText); break;
+                    case "GlobalHotkey": Settings.GlobalHotkey = xmlSettings.ChildNodes[i].InnerText; break;
+                    case "SoundEnabled": Settings.SoundEnabled = Convert.ToBoolean(xmlSettings.ChildNodes[i].InnerText); break;
+                    case "SoundPath": Settings.SoundPath = xmlSettings.ChildNodes[i].InnerText; break;
+                    case "WaitAfterDetect": Settings.WaitAfterDetect = XmlHelper.ParseInt32(xmlSettings.ChildNodes[i].InnerText); break;
+                    case "WindowMarginLeft": Settings.WindowMarginLeft = XmlHelper.ParseInt32(xmlSettings.ChildNodes[i].InnerText); break;
+                    case "WindowMarginTop": Settings.WindowMarginTop = XmlHelper.ParseInt32(xmlSettings.ChildNodes[i].InnerText); break;
+                }
+            }
+        }
+
+        public void Save()
+        {
+            XmlNode xmlSettings = _xmlDocument.GetElementsByTagName("Settings")[0];
+            for (int i = 0; i < xmlSettings.ChildNodes.Count; i++)
+            {
+                switch (xmlSettings.ChildNodes[i].Name)
+                {
+                    case "TimerEnabled": xmlSettings.ChildNodes[i].InnerText = Settings.TimerEnabled.ToString(); break;
+                    case "TimerInterval": xmlSettings.ChildNodes[i].InnerText = Settings.TimerInterval.ToString(); break;
+                    case "HotkeyEnabled": xmlSettings.ChildNodes[i].InnerText = Settings.HotkeyEnabled.ToString(); break;
+                    case "GlobalHotkey": xmlSettings.ChildNodes[i].InnerText = Settings.GlobalHotkey; break;
+                    case "SoundEnabled": xmlSettings.ChildNodes[i].InnerText = Settings.SoundEnabled.ToString(); break;
+                    case "SoundPath": xmlSettings.ChildNodes[i].InnerText = Settings.SoundPath; break;
+                    case "WaitAfterDetect": xmlSettings.ChildNodes[i].InnerText = Settings.WaitAfterDetect.ToString(); break;
+                    case "WindowMarginLeft": xmlSettings.ChildNodes[i].InnerText = Settings.WindowMarginLeft.ToString(); break;
+                    case "WindowMarginTop": xmlSettings.ChildNodes[i].InnerText = Settings.WindowMarginTop.ToString(); break;
+                }
+            }
+            _xmlDocument.Save(FilePath);
         }
     }
 
