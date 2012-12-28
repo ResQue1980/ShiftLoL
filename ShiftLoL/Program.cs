@@ -224,19 +224,18 @@ namespace ShiftLoL
             int borderLeft = (rectWindow.right - rectWindow.left) - rectClient.right;
 
             Screen screen = Screen.FromHandle(handle);
-            Rectangle rectScreen = screen.Bounds;
 
             int finalLeft = -borderLeft + screen.Bounds.Left + settingsFile.Settings.WindowMarginLeft;
             int finalTop = -borderTop + screen.Bounds.Top + settingsFile.Settings.WindowMarginTop;
-            int finalWidth = rectScreen.Width + borderLeft;
-            int finalHeight = rectScreen.Height + borderTop;
+            int finalWidth = screen.Bounds.Width + borderLeft;
+            int finalHeight = screen.Bounds.Height + borderTop;
 
             if ((WindowsAPI.GetWindowLong(handle, WindowsAPI.GWL_STYLE) & WindowsAPI.WS_BORDER) != 0)
             {
                 int borderWidth = WindowsAPI.GetSystemMetrics(WindowsAPI.SM_CXSIZEFRAME);
                 finalLeft += borderWidth - 1;
                 finalTop += borderWidth - 1;
-                WindowsAPI.SetWindowPos(handle, IntPtr.Zero, finalLeft, finalTop, finalWidth, finalHeight, 0);
+                WindowsAPI.SetWindowPos(handle, IntPtr.Zero, finalLeft, finalTop, finalWidth, finalHeight, 0x0040);
             }
             else
             {

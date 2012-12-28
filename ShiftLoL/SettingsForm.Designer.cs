@@ -264,10 +264,15 @@
             this.textMarginTop.Anchor = System.Windows.Forms.AnchorStyles.None;
             this.textMarginTop.Location = new System.Drawing.Point(176, 258);
             this.textMarginTop.Maximum = new decimal(new int[] {
-            3600000,
+            100000,
             0,
             0,
             0});
+            this.textMarginTop.Minimum = new decimal(new int[] {
+            100000,
+            0,
+            0,
+            -2147483648});
             this.textMarginTop.Name = "textMarginTop";
             this.textMarginTop.Size = new System.Drawing.Size(120, 20);
             this.textMarginTop.TabIndex = 21;
@@ -277,10 +282,15 @@
             this.textMarginLeft.Anchor = System.Windows.Forms.AnchorStyles.None;
             this.textMarginLeft.Location = new System.Drawing.Point(176, 223);
             this.textMarginLeft.Maximum = new decimal(new int[] {
-            3600000,
+            100000,
             0,
             0,
             0});
+            this.textMarginLeft.Minimum = new decimal(new int[] {
+            100000,
+            0,
+            0,
+            -2147483648});
             this.textMarginLeft.Name = "textMarginLeft";
             this.textMarginLeft.Size = new System.Drawing.Size(120, 20);
             this.textMarginLeft.TabIndex = 20;
