@@ -35,11 +35,12 @@ namespace ShiftLoL
             textWaitAfter.Value = parent.settingsFile.Settings.WaitAfterDetect;
             textMarginLeft.Value = parent.settingsFile.Settings.WindowMarginLeft;
             textMarginTop.Value = parent.settingsFile.Settings.WindowMarginTop;
+
+            smallWindowPanel.Controls.OfType<RadioButton>().Single(t => t.Name == "smallWindowRadio" + parent.settingsFile.Settings.SmallWindowPosition.ToString()).Checked = true;
         }
 
         private void closeButton_Click(object sender, EventArgs e)
         {
-            SettingsForm_Load(sender, e);
             Hide();
         }
 
@@ -57,6 +58,9 @@ namespace ShiftLoL
             parent.settingsFile.Settings.WaitAfterDetect = (int) textWaitAfter.Value;
             parent.settingsFile.Settings.WindowMarginLeft = (int) textMarginLeft.Value;
             parent.settingsFile.Settings.WindowMarginTop = (int) textMarginTop.Value;
+
+            var radioName = smallWindowPanel.Controls.OfType<RadioButton>().FirstOrDefault(r => r.Checked).Name;
+            parent.settingsFile.Settings.SmallWindowPosition = XmlHelper.ParseInt32(radioName.Substring(radioName.Length - 1, 1));
 
             parent.settingsFile.Save();
             parent.ReloadSettings();
@@ -95,6 +99,12 @@ namespace ShiftLoL
                 parent.ReloadSettings();
             }
             SettingsForm_Load(sender, e);
+        }
+
+        private void SettingsForm_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            Hide();
+            e.Cancel = true;
         }
     }
 }

@@ -45,37 +45,11 @@ namespace ShiftLoL
             settingsForm.parent = this;
         }
 
-        Tuple<Keys, ModifierKeys> ConvertFromString(string keysString)
-        {
-            Keys mainKey = new Keys();
-            ModifierKeys modKeys = new ModifierKeys();
-
-            var keys = keysString.Split('+');
-            foreach (string keyString in keys)
-            {
-                Keys key = (Keys)(new KeysConverter()).ConvertFromString(keyString);
-                if (key == Keys.Alt || key == Keys.LWin || key == Keys.Shift || key == Keys.Control)
-                {
-                    switch (key)
-                    {
-                        case Keys.Alt: modKeys = modKeys | ModifierKeys.Alt; break;
-                        case Keys.LWin: modKeys = modKeys | ModifierKeys.Win; break;
-                        case Keys.Shift: modKeys = modKeys | ModifierKeys.Shift; break;
-                        case Keys.Control: modKeys = modKeys | ModifierKeys.Control; break;
-                    }      
-                }
-                else
-                {
-                    mainKey = key;
-                }
-            }
-            return new Tuple<Keys, ModifierKeys>(mainKey, (ModifierKeys)modKeys);
-        }
-
         public void ReloadSettings()
         {
-            InitXml();
-            InitNotify();
+            bool firstTime;
+            InitXml(out firstTime);
+            InitNotify(firstTime);
             InitTimer();
 
             sound.SoundLocation = settingsFile.Settings.SoundPath;
@@ -97,7 +71,7 @@ namespace ShiftLoL
             {
                 try
                 {
-                    Tuple<Keys, ModifierKeys> keysTuple = ConvertFromString(settingsFile.Settings.GlobalHotkey);
+                    Tuple<Keys, ModifierKeys> keysTuple = KeysHelper.ConvertFromString(settingsFile.Settings.GlobalHotkey);
                     globalHotkey.RegisterHotKey(keysTuple.Item2, keysTuple.Item1);
                 }
                 catch (Exception e)
@@ -111,17 +85,19 @@ namespace ShiftLoL
             }
         }
 
-        void InitXml()
+        void InitXml(out bool firstTime)
         {
+            firstTime = false;
             if (!settingsFile.Exists)
             {
                 MessageBox.Show(String.Format("'{0}' is missing.\nTool will create a new one.", settingsFile.Path), assemblyTitle.Title);
                 settingsFile.Rewrite();
+                firstTime = true;
             }
             settingsFile.Read();
         }
 
-        void InitNotify()
+        void InitNotify(bool firstTime)
         {
             if (notify != null) notify.Dispose();
             notify = new NotifyIcon(container)
@@ -130,7 +106,7 @@ namespace ShiftLoL
                              Text = "ShiftLoL",
                              Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath)
                          };
-            notify.DoubleClick += new EventHandler(NotifyDoubleClick);
+            notify.DoubleClick += NotifyDoubleClick;
 
             MenuItem[] menuItems = new MenuItem[]
                                        {
@@ -148,7 +124,7 @@ namespace ShiftLoL
                                                                              assemblyName.Version + "\n\n" + assemblyTitle.Title +
                                                                              " is a tool for shifting League of Legends window.\n\n" +
                                                                              assemblyTitle.Title +
-                                                                             " is coded by Doğan Çelik.\nYou can visit my site at http://www.dogancelik.com/",
+                                                                             " is coded by Doğan Çelik.\nYou can visit my site at http://dogancelik.com/",
                                                                              @"About " + assemblyTitle.Title,
                                                                              MessageBoxButtons.OK,
                                                                              MessageBoxIcon.Information);
@@ -159,17 +135,31 @@ namespace ShiftLoL
             notify.ContextMenu = new ContextMenu(menuItems);
             notify.ContextMenu.MenuItems[0].Enabled = !settingsFile.Settings.TimerEnabled;
             notify.ContextMenu.MenuItems[1].Enabled = settingsFile.Settings.TimerEnabled;
+
+            if (firstTime)
+            {
+                notify.BalloonTipIcon = ToolTipIcon.Info;
+                notify.BalloonTipTitle = assemblyTitle.Title;
+                notify.BalloonTipText = "Hi there!\n - Right click for menu\n - Double click to exit";
+                notify.ShowBalloonTip(10000);    
+            }
         }
 
         void InitTimer()
         {
+            if (timer != null)
+            {
+                timer.Tick -= TimerTick;
+                timer.Dispose();
+            }
+
             timer = new Timer(container)
             {
                 Interval = settingsFile.Settings.TimerInterval,
                 Enabled = settingsFile.Settings.TimerEnabled
             };
 
-            timer.Tick += new EventHandler(TimerTick);
+            timer.Tick += TimerTick;
         }
 
         void EnableTimer(object o, EventArgs e)
@@ -188,6 +178,11 @@ namespace ShiftLoL
 
         void TimerTick(object sender, EventArgs e)
         {
+            if (notify.ContextMenu == null)
+            {
+                return;
+            }
+
             if (sender == notify.ContextMenu.MenuItems[2])
                 Scan(true);
             else
@@ -218,36 +213,153 @@ namespace ShiftLoL
             WindowsAPI.RECT rectClient, rectWindow;
 
             WindowsAPI.GetClientRect(handle, out rectClient);
+
+            int rectClientWidth;
+            int rectClientHeight;
+
+            do
+            {
+                WindowsAPI.GetClientRect(handle, out rectClient);
+
+                rectClientWidth = rectClient.right - rectClient.left;
+                rectClientHeight = rectClient.bottom - rectClient.top;
+
+                Thread.Sleep(settingsFile.Settings.TimerInterval);
+            }
+            while (rectClientWidth == 1);
+
             WindowsAPI.GetWindowRect(handle, out rectWindow);
+
+            int rectWindowWidth = rectWindow.right - rectWindow.left;
+            int rectWindowHeight = rectWindow.bottom - rectWindow.top;
 
             int borderTop = (rectWindow.bottom - rectWindow.top) - rectClient.bottom;
             int borderLeft = (rectWindow.right - rectWindow.left) - rectClient.right;
 
             Screen screen = Screen.FromHandle(handle);
 
-            int finalLeft = -borderLeft + screen.Bounds.Left + settingsFile.Settings.WindowMarginLeft;
-            int finalTop = -borderTop + screen.Bounds.Top + settingsFile.Settings.WindowMarginTop;
-            int finalWidth = screen.Bounds.Width + borderLeft;
-            int finalHeight = screen.Bounds.Height + borderTop;
+            int reposLeft = 0, reposTop = 0;
+            bool isFullScreen = screen.Bounds.Width == rectClientWidth && screen.Bounds.Height == rectClientHeight;
 
-            if ((WindowsAPI.GetWindowLong(handle, WindowsAPI.GWL_STYLE) & WindowsAPI.WS_BORDER) != 0)
+            if (!isFullScreen && (rectClientWidth <= screen.Bounds.Width || rectClientHeight <= screen.Bounds.Height))
+            {
+                int screenClientWidth = screen.WorkingArea.Width;
+                int screenClientHeight = screen.WorkingArea.Height;
+
+                switch (settingsFile.Settings.SmallWindowPosition)
+                {
+                    case 1:
+                        break;
+                    case 2:
+                        reposLeft = (screenClientWidth - rectWindowWidth) / 2;
+                        break;
+                    case 3:
+                        reposLeft = screenClientWidth - rectWindowWidth;
+                        break;
+                    case 4:
+                        reposTop = (screenClientHeight - rectWindowHeight) / 2;
+                        break;
+                    case 5:
+                        reposTop = (screenClientHeight - rectWindowHeight) / 2;
+                        reposLeft = (screenClientWidth - rectWindowWidth) / 2;
+                        break;
+                    case 6:
+                        reposTop = (screenClientHeight - rectWindowHeight) / 2;
+                        reposLeft = screenClientWidth - rectWindowWidth;
+                        break;
+                    case 7:
+                        reposTop = screenClientHeight - rectWindowHeight;
+                        break;
+                    case 8:
+                        reposTop = screenClientHeight - rectWindowHeight;
+                        reposLeft = (screenClientWidth - rectWindowWidth) / 2;
+                        break;
+                    case 9:
+                        reposTop = screenClientHeight - rectWindowHeight;
+                        reposLeft = screenClientWidth - rectWindowWidth;
+                        break;
+                }
+            }
+
+            bool borderExists = (WindowsAPI.GetWindowLong(handle, WindowsAPI.GWL_STYLE) & WindowsAPI.WS_BORDER) != 0;
+
+            int finalLeft = screen.Bounds.Left + reposLeft + settingsFile.Settings.WindowMarginLeft;
+            int finalTop = screen.Bounds.Top + reposTop + settingsFile.Settings.WindowMarginTop;
+            int finalWidth = rectWindowWidth;
+            int finalHeight = rectWindowHeight;
+
+            if (borderExists)
             {
                 int borderWidth = WindowsAPI.GetSystemMetrics(WindowsAPI.SM_CXSIZEFRAME);
-                finalLeft += borderWidth - 1;
-                finalTop += borderWidth - 1;
-                WindowsAPI.SetWindowPos(handle, IntPtr.Zero, finalLeft, finalTop, finalWidth, finalHeight, 0x0040);
+                if (isFullScreen)
+                {
+                    finalLeft -= borderLeft + borderWidth;
+                    finalTop -= borderTop;
+                }
+                else
+                {
+                    if (settingsFile.Settings.SmallWindowPosition >= 4)
+                    {
+                        finalTop -= borderWidth;
+                    }
+
+                }
+                WindowsAPI.SetWindowPos(handle, IntPtr.Zero, finalLeft, finalTop, finalWidth, finalHeight, WindowsAPI.SWP_SHOWWINDOW);
+                WindowsAPI.SetForegroundWindow(handle);
             }
             else
             {
-                WindowsAPI.SetWindowPos(handle, IntPtr.Zero, finalLeft, finalTop, finalWidth, finalHeight, 0);
+                if (isFullScreen)
+                {
+                    WindowsAPI.ShowWindow(handle, WindowsAPI.SW_MAXIMIZE);
+                }
+                else
+                {
+                    finalLeft -= borderLeft;
+                    finalTop -= borderTop;
+                    WindowsAPI.SetWindowPos(handle, IntPtr.Zero, finalLeft, finalTop, finalWidth, finalHeight, 0);   
+                }
             }
         }
 
         void NotifyDoubleClick(object sender, EventArgs e)
         {
+            timer.Tick -= TimerTick;
+            timer.Dispose();
             globalHotkey.Dispose();
             notify.Dispose();
+            settingsForm.Dispose();
             Application.Exit();
+        }
+    }
+
+    public class KeysHelper
+    {
+        public static Tuple<Keys, ModifierKeys> ConvertFromString(string keysString)
+        {
+            Keys mainKey = new Keys();
+            ModifierKeys modKeys = new ModifierKeys();
+
+            var keys = keysString.Split('+');
+            foreach (string keyString in keys)
+            {
+                Keys key = (Keys)(new KeysConverter()).ConvertFromString(keyString);
+                if (key == Keys.Alt || key == Keys.LWin || key == Keys.Shift || key == Keys.Control)
+                {
+                    switch (key)
+                    {
+                        case Keys.Alt: modKeys = modKeys | ModifierKeys.Alt; break;
+                        case Keys.LWin: modKeys = modKeys | ModifierKeys.Win; break;
+                        case Keys.Shift: modKeys = modKeys | ModifierKeys.Shift; break;
+                        case Keys.Control: modKeys = modKeys | ModifierKeys.Control; break;
+                    }
+                }
+                else
+                {
+                    mainKey = key;
+                }
+            }
+            return new Tuple<Keys, ModifierKeys>(mainKey, (ModifierKeys)modKeys);
         }
     }
 
@@ -267,6 +379,8 @@ namespace ShiftLoL
 
         [DllImport("user32.dll")]
         public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+        public const int SWP_SHOWWINDOW = 0x0040;
 
         [DllImport("user32.dll")]
         public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, UInt32 uFlags);
@@ -294,6 +408,15 @@ namespace ShiftLoL
 
         [DllImport("user32.dll")]
         public static extern short VkKeyScan(char ch);
+
+        public const int SW_MAXIMIZE = 3;
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool SetForegroundWindow(IntPtr hWnd);
     }
 
     public class XmlHelper
@@ -332,6 +455,7 @@ namespace ShiftLoL
             public int WaitAfterDetect { get; set; }
             public int WindowMarginLeft { get; set; }
             public int WindowMarginTop { get; set; }
+            public int SmallWindowPosition { get; set; }
         }
 
         private const string FilePath = @"Settings.xml";
@@ -350,6 +474,7 @@ namespace ShiftLoL
             Settings.GlobalHotkey = Settings.SoundPath = String.Empty;
             Settings.HotkeyEnabled = Settings.SoundEnabled = Settings.TimerEnabled = false;
             Settings.WaitAfterDetect = Settings.WindowMarginLeft = Settings.WindowMarginTop = 0;
+            Settings.SmallWindowPosition = 5;
             Settings.TimerInterval = 5000;
         }
 
@@ -363,8 +488,8 @@ namespace ShiftLoL
             XmlWriter xmlWriter = XmlWriter.Create(FilePath, _writerSettings);
             xmlWriter.WriteStartDocument();
             xmlWriter.WriteStartElement("Settings");
-            XmlHelper.CreateElement(xmlWriter, "TimerEnabled", "false");
-            XmlHelper.CreateElement(xmlWriter, "TimerInterval", "5000");
+            XmlHelper.CreateElement(xmlWriter, "TimerEnabled", "true");
+            XmlHelper.CreateElement(xmlWriter, "TimerInterval", "1000");
             XmlHelper.CreateElement(xmlWriter, "HotkeyEnabled", "false");
             XmlHelper.CreateElement(xmlWriter, "GlobalHotkey", "Ctrl+Shift+Up");
             XmlHelper.CreateElement(xmlWriter, "SoundEnabled", "false");
@@ -372,6 +497,7 @@ namespace ShiftLoL
             XmlHelper.CreateElement(xmlWriter, "WaitAfterDetect", "0");
             XmlHelper.CreateElement(xmlWriter, "WindowMarginLeft", "0");
             XmlHelper.CreateElement(xmlWriter, "WindowMarginTop", "0");
+            XmlHelper.CreateElement(xmlWriter, "SmallWindowPosition", "5");
             xmlWriter.WriteEndElement();
             xmlWriter.Close();
         }
@@ -393,6 +519,7 @@ namespace ShiftLoL
                     case "WaitAfterDetect": Settings.WaitAfterDetect = XmlHelper.ParseInt32(xmlSettings.ChildNodes[i].InnerText); break;
                     case "WindowMarginLeft": Settings.WindowMarginLeft = XmlHelper.ParseInt32(xmlSettings.ChildNodes[i].InnerText); break;
                     case "WindowMarginTop": Settings.WindowMarginTop = XmlHelper.ParseInt32(xmlSettings.ChildNodes[i].InnerText); break;
+                    case "SmallWindowPosition": Settings.SmallWindowPosition = XmlHelper.ParseInt32(xmlSettings.ChildNodes[i].InnerText); break;
                 }
             }
         }
@@ -413,6 +540,7 @@ namespace ShiftLoL
                     case "WaitAfterDetect": xmlSettings.ChildNodes[i].InnerText = Settings.WaitAfterDetect.ToString(); break;
                     case "WindowMarginLeft": xmlSettings.ChildNodes[i].InnerText = Settings.WindowMarginLeft.ToString(); break;
                     case "WindowMarginTop": xmlSettings.ChildNodes[i].InnerText = Settings.WindowMarginTop.ToString(); break;
+                    case "SmallWindowPosition": xmlSettings.ChildNodes[i].InnerText = Settings.SmallWindowPosition.ToString(); break;
                 }
             }
             _xmlDocument.Save(FilePath);
