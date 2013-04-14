@@ -3,11 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <title>ShiftLoL</title>
+  <meta name="description" content="ShiftWindow for League of Legends players">
+  <meta name="keywords" content="shiftwindow, league of legends, shiftlol, shift window, lol">
   <link href="//netdna.bootstrapcdn.com/twitter-bootstrap/2.1.1/css/bootstrap.no-icons.min.css" rel="stylesheet">
   <link href="//netdna.bootstrapcdn.com/font-awesome/2.0/css/font-awesome.css" rel="stylesheet">
   <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
   <style>
-    body {
+    body {f
       padding-top: 20px;
     }
 
@@ -27,6 +29,19 @@
       font-size: 28px;
       vertical-align: middle;
     }
+
+    footer {
+      text-align: right;
+      margin-top: 1em;
+    }
+
+    .fb-like {
+      margin-top: 1em;
+      background-color: rgba(255, 255, 255, .75);
+      box-shadow: 0 0 4px #fff;
+      padding: 5px 5px 0 5px;
+      border-radius: 5px;
+    }
   </style>
 </head>
 <body>
@@ -34,29 +49,41 @@
     <div class="hero-unit">
       <h1>ShiftLoL</h1>
       <h2>ShiftWindow for League of Legends players</h2>
-      <a href="ShiftLoL.zip" class="btn btn-large btn-primary"><i class="icon-white icon-download-alt"></i> Download ShiftLoL v1.2.1</a>
-      <a target="_blank" href="https://github.com/dogancelik/ShiftLoL" class="btn btn-large btn-github"><i class="icon-white icon-github"></i> View Project on Github</a>
+      <a href="shiftlol130beta.zip" class="btn btn-large btn-warning"><i class="icon-white icon-download-alt"></i> Download ShiftLoL <b>v1.3.0 beta</b></a>
+      <a href="shiftlol121.zip" class="btn btn-large btn-info"><i class="icon-white icon-download-alt"></i> Download ShiftLoL <b>v1.2.1</b></a>
+      <a href="https://github.com/dogancelik/ShiftLoL" class="btn btn-large btn-github"><i class="icon-white icon-github"></i> View Project on Github</a><br>
+
+      <div class="fb-like" data-href="http://dogancelik.com/ShiftLoL/" data-send="false" data-width="350" data-show-faces="true" data-font="arial" data-action="recommend"></div>
     </div>
 
+    
     <div class="row">
-      <div class="span4">
+      <div class="span6">
         <h3>Features</h3>
         <ul>
           <li>Supports "Windowless" and "Bordered" window modes!</li>
-          <li>Shifts the LoL window with a single click/key!</li>
+          <li>Moves the LoL window with a single click/key!</li>
           <li>Plays a sound when game starts!</li>
           <li>and nothing else!</li>
         </ul>
       </div>
-      <div class="span4">
-        <h3>Why should I use this?</h3>
-        <p>You will be supporting an open source project!</p>
-      </div>
-	  <div class="span4">
-        <h3>Known issues</h3>
-        <p>Sometimes it doesn't work...</p>
+
+      <div class="span6">
+        <h3>Known Problems (v1.3.0 beta)</h3>
+        <ul>
+          <li>"Windowed" mode is buggy on Windows 8, because when you "shift" the LoL window, taskbar gets in front of the LoL window. <a href="http://www.sevenforums.com/tutorials/54842-taskbar-always-top-disable-enable.html">A solution for this which I haven't tested.</a></li>
+        </ul>
       </div>
     </div>
   </div>
+
+  <div id="fb-root"></div>
+  <script>(function(d, s, id) {
+    var js, fjs = d.getElementsByTagName(s)[0];
+    if (d.getElementById(id)) return;
+    js = d.createElement(s); js.id = id;
+    js.src = "//connect.facebook.net/en_US/all.js#xfbml=1";
+    fjs.parentNode.insertBefore(js, fjs);
+  }(document, 'script', 'facebook-jssdk'));</script>
 </body>
 </html>
